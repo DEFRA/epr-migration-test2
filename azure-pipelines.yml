@@ -8,12 +8,7 @@ steps:
     Set-StrictMode -Version 3.0
 
     [string]$adoExtensionName = 'azure-devops'
-    [string]$organizationUri = '$(System.CollectionUri)'
-    [string]$teamProject = '$(System.TeamProject)'
-
     Write-Debug "adoExtensionName=$adoExtensionName"
-    Write-Debug "organizationUri=$organizationUri"
-    Write-Debug "teamProject=$teamProject"
 
     $ENV:AZURE_DEVOPS_EXT_PAT = '$(System.AccessToken)'
 
@@ -26,37 +21,42 @@ steps:
     else {
       Write-Host "Az CLI extension '$adoExtensionName' already installed"
     }
-
-    Write-Host "Setting default organization to '$organizationUri' and project to '$teamProject'"
-    az devops configure --defaults organization=$organizationUri project=$teamProject
   displayName: Initialize Az CLI ADO Extension
 
 - pwsh: | 
     Set-StrictMode -Version 3.0
     [string]$variableGroupName = 'epr-migration-test2'
+    [string]$organizationUri = '$(System.CollectionUri)'
+    [string]$teamProject = '$(System.TeamProject)'
+    Write-Debug "organizationUri=$organizationUri"
+    Write-Debug "teamProject=$teamProject"
     Write-Debug "variableGroupName=$variableGroupName"
 
     $ENV:AZURE_DEVOPS_EXT_PAT = '$(System.AccessToken)'
+
+    Write-Host "Setting default organization to '$organizationUri' and project to '$teamProject'"
+    az devops configure --defaults organization=$organizationUri project=$teamProject
 
     $variableGroupSummary = az pipelines variable-group list | ConvertFrom-Json -Depth 99 | Where-Object -FilterScript { $_.Name -eq $variableGroupName } 
     
     if ($null -eq $variableGroupSummary) {
       throw "Could not find variable group $variableGroupName"
-    } else {
+    } 
+    else {
       $variableGroup = az pipelines variable-group show --id $variableGroupSummary.id | ConvertFrom-Json -Depth 99
+
+      [System.Version]$currentVersion = [System.Version]::new($variableGroup.variables.major.value, $variableGroup.variables.minor.value, $variableGroup.variables.patch.value)
+      [System.Version]$newVersion = [System.Version]::new($currentVersion.Major, $currentVersion.Minor, $currentVersion.Build + 1)
+      Write-Host "Incrementing $($currentVersion.ToString()) to $($newVersion.ToString())"
+
+      az pipelines variable-group variable update --id $variableGroup.Id --name Patch --value $newVersion.Build
+      az pipelines variable-group variable update --id $variableGroup.Id --name Version --value $newVersion.ToString()
+
+      Write-Host "##vso[task.setvariable variable=MajorVersion]$($newVersion.Major)"
+      Write-Host "##vso[task.setvariable variable=MinorVersion]$($newVersion.Minor)"
+      Write-Host "##vso[task.setvariable variable=PatchVersion]$($newVersion.Build)"
+      Write-Host "##vso[task.setvariable variable=Version]$($newVersion.ToString())"
     }
-
-    [System.Version]$currentVersion = [System.Version]::new($variableGroup.variables.major.value, $variableGroup.variables.minor.value, $variableGroup.variables.patch.value)
-    [System.Version]$newVersion = [System.Version]::new($currentVersion.Major, $currentVersion.Minor, $currentVersion.Build + 1)
-    Write-Host "Incrementing $($currentVersion.ToString()) to $($newVersion.ToString())"
-
-    az pipelines variable-group variable update --id $variableGroup.Id --name Patch --value $newVersion.Build
-    az pipelines variable-group variable update --id $variableGroup.Id --name Version --value $newVersion.ToString()
-
-    Write-Host "##vso[task.setvariable variable=MajorVersion]$($newVersion.Major)"
-    Write-Host "##vso[task.setvariable variable=MinorVersion]$($newVersion.Minor)"
-    Write-Host "##vso[task.setvariable variable=PatchVersion]$($newVersion.Build)"
-    Write-Host "##vso[task.setvariable variable=Version]$($newVersion.ToString())"
   displayName: Version up
 
 - pwsh: | 
